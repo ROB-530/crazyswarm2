@@ -2,6 +2,7 @@
 import pathlib
 
 import rclpy
+from rclpy import Parameter
 from rclpy.node import Node
 from sensor_msgs.msg import Imu
 from geometry_msgs.msg import PoseStamped
@@ -11,6 +12,16 @@ class IEKF(Node):
     def __init__(self):
         super().__init__("iekf")
 
+        self.declare_parameters(
+            "",
+            [
+                ("imu_topic", Parameter.Type.STRING),
+                ("pose_topic", Parameter.Type.STRING),
+                ("odom_topic", Parameter.Type.STRING),
+                ("iekf_output_topic", Parameter.Type.STRING)
+            ]
+        )
+
         imu_topic = self.get_parameter("imu_topic").value
         pose_topic = self.get_parameter("pose_topic").value
         odom_topic = self.get_parameter("odom_topic").value
@@ -18,8 +29,8 @@ class IEKF(Node):
 
         # subscribers
         self.imu_sub = self.create_subscription(Imu, imu_topic, self.imu_callback, 1)
-        self.imu_sub = self.create_subscription(Imu, imu_topic, self.imu_callback, 1)
-        self.imu_sub = self.create_subscription(Imu, imu_topic, self.imu_callback, 1)
+        self.pose_sub = self.create_subscription(PoseStamped, pose_topic, self.pose_callback, 1)
+        self.odom_sub = self.create_subscription(Odometry, odom_topic, self.odom_callback, 1)
 
         # publishers
         self.pose_pub = self.create_publisher(Odometry, output_topic, 1)
@@ -35,11 +46,11 @@ class IEKF(Node):
         # TODO: this should eventually be slowed down to publish more infrequently
         pass
 
-    def odom_topic(self, odom_msg: Odometry):
+    def odom_callback(self, odom_msg: Odometry):
         # This is our "ground truth odometry"
         # Use it to compare against our IEKF output
         # TODO: nothing for now
-        pass
+        self.get_logger().info("odom message received!")
 
 
 def main():
