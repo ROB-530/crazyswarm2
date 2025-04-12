@@ -1,0 +1,6 @@
+/iekf:
+  ros__parameters:
+    imu_topic: "" # TODO: didn't get this working
+    pose_topic: "/cf_1/pose" 
+    odom_topic: "/cf_1/odom"
+    iekf_output_topic: "/cf_1/iekf_pose"

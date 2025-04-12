@@ -1,24 +1,24 @@
 # named list of all robots
 robots:
-  cf231:
+  cf_1:
     enabled: true
-    uri: radio://0/80/2M/E7E7E7E7E7
+    uri: udp://0.0.0.0:19850
     initial_position: [0.0, 0.0, 0.0]
     type: cf21  # see robot_types
     # firmware_params:
     #   kalman:
     #     pNAcc_xy: 1.0 # default 0.5
-    # firmware_logging:
-    #   enabled: true
-    #   custom_topics:
-    #     topic_name3: 
-    #       frequency: 1
-    #       vars: ["acc.x", "acc.y"]
-  cf5:
-    enabled: false
-    uri: radio://0/80/2M/E7E7E7E705
-    initial_position: [0.0, -0.5, 0.0]
-    type: cf21  # see robot_types
+    firmware_logging:
+      enabled: true
+      custom_topics:
+        topic_name3: 
+          frequency: 1
+          vars: ["acc.x", "acc.y", "acc.z"]
+  # cf_2:
+  #   enabled: false
+  #   uri: udp://0.0.0.0:19851
+  #   initial_position: [0.0, -0.5, 0.0]
+  #   type: cf21  # see robot_types
     # firmware_params:
     #   kalman:
     #     pNAcc_xy: 1.0 # default 0.5
@@ -79,6 +79,8 @@ all:
         frequency: 10 # Hz
       status:
         frequency: 1 # Hz
+      odom:
+        frequency: 10 # Hz
     #custom_topics:
     #  topic_name1:
     #    frequency: 10 # Hz
@@ -92,7 +94,7 @@ all:
     commander:
       enHighLevel: 1
     stabilizer:
-      estimator: 2 # 1: complementary, 2: kalman
+      estimator: 1 # 1: complementary, 2: kalman
       controller: 2 # 1: PID, 2: mellinger
     # ring:
     #   effect: 16 # 6: double spinner, 7: solid color, 16: packetRate
