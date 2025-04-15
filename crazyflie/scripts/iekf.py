@@ -2,6 +2,7 @@
 import pathlib
 
 import rclpy
+from rclpy import Parameter
 import numpy as np
 from scipy.linalg import expm,block_diag #block_diag not accessed
 from scipy.spatial.transform import Rotation as R

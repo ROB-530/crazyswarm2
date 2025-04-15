@@ -179,11 +179,10 @@ def generate_launch_description():
                 Path(get_package_share_directory("crazyflie"), "config", "iekf.yaml"),
             ]
         ),
-
         Node(
             package='crazyflie',
             executable='imu_data_pub.py',
-            name='gui',
+            name='iekf',
             parameters=[Path(get_package_share_directory("crazyflie"), "config", "iekf.yaml"),]
         ),
 

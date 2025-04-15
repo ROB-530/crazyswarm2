@@ -36,6 +36,7 @@ from geometry_msgs.msg import Twist
 from geometry_msgs.msg import PoseStamped, TransformStamped
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
+from sensor_msgs.msg import Imu
 
 import tf_transformations
 from tf2_ros import TransformBroadcaster
@@ -92,11 +93,14 @@ class CrazyflieServer(Node):
         # Assign default topic types, variables and callbacks
         self.default_log_type = {"pose": PoseStamped,
                                  "scan": LaserScan,
+                                 "imu": Imu,
                                  "odom": Odometry,
                                  "status": Status}
         self.default_log_vars = {"pose": ['stateEstimate.x', 'stateEstimate.y', 'stateEstimate.z',
                                           'stabilizer.roll', 'stabilizer.pitch', 'stabilizer.yaw'],
                                  "scan": ['range.front', 'range.left', 'range.back', 'range.right'],
+                                 "imu": ['acc.x','acc.y','acc.z',
+                                         'attitude.roll', 'attitude.pitch', 'attitude.yaw'],
                                  "odom": ['stateEstimate.x', 'stateEstimate.y', 'stateEstimate.z',
                                           'stabilizer.yaw', 'stabilizer.roll', 'stabilizer.pitch',
                                           'kalman.statePX', 'kalman.statePY', 'kalman.statePZ',
@@ -106,6 +110,7 @@ class CrazyflieServer(Node):
         self.default_log_fnc = {"pose": self._log_pose_data_callback,
                                 "scan": self._log_scan_data_callback,
                                 "odom": self._log_odom_data_callback,
+                                "imu": self._log_imu_data_callback,
                                 "status": self._log_status_data_callback}
 
         self.world_tf_name = "map"
@@ -586,6 +591,32 @@ class CrazyflieServer(Node):
             self.tfbr.sendTransform(t_base)
         except:
             self.get_logger().info("Could not publish pose tf")
+
+    def _log_imu_data_callback(self, timestamp, data, logconf, uri):
+        """
+        Publish IMU angular velocity and linear acceleration to ROS2
+        """
+        
+        cf_name = self.cf_dict[uri]
+
+        acc_x = data.get("acc.x")
+        acc_y = data.get("acc.y")
+        acc_z = data.get("acc.z")
+
+        msg = Imu()
+        msg.child_frame_id = cf_name
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = self.world_tf_name
+
+        msg.linear_acceleration.x = acc_x
+        msg.linear_acceleration.y = acc_y
+        msg.linear_acceleration.z = acc_z
+
+        try:
+            self.swarm._cfs[uri].logging["imu_publisher"].publish(msg)
+        except:
+            self.get_logger().info("Could not publish imu message, stopping imu log")
+            self.swarm._cfs[uri].logging["imu_log_config"].stop()
 
     def _log_odom_data_callback(self, timestamp, data, logconf, uri):
         """
