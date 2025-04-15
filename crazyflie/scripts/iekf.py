@@ -2,12 +2,8 @@
 import pathlib
 
 import rclpy
-<<<<<<< Updated upstream
-from rclpy import Parameter
-=======
 import numpy as np
-from scipy.linalg import expm
->>>>>>> Stashed changes
+from scipy.linalg import expm,block_diag #block_diag not accessed
 from rclpy.node import Node
 from sensor_msgs.msg import Imu
 from geometry_msgs.msg import PoseStamped
@@ -42,79 +38,70 @@ class IEKF(Node):
 
 
         # parameters and system
-        self.Phi = np.eye(3)               # state transtion matrix for orientation
-        self.Q = 1e-4*np.eye(3)            # gyroscope noise covariance
-        self.N = 1e-4*np.eye(3)            # accelerometer noise covariance
-        self.f = orientation_process_model              # process model for orientation
-        self.H = orientation_measurement_Jacobain      # measurement Jacobain
+        #TODO: initial state needs to be set correctly
+        self.Pos = np.zeros((3,1))                                               # state position
+        self.R = np.eye(3)                                                       # state orientation
+        self.vel = np.zeros((3,1))                                               # velocity
+        self.X = np.eye((5,5))                                                   # combined state vector
 
-        self.X = np.array([0,0,0])         # state vector for position
-        self.cov_pos = 0.1 * np.eye(3)     # state covariance for position
-        self.R = np.eye(3)                 # state vector for orientation
-        self.cov_orient = 0.1 * np.eye(3)  # state covariance for orientation
-        self.vel = np.array([0,0,0])       # velocity tracking
+        #TODO:block diag of cov_omega,cov_accel,cov_position and these should be fixed values
+        self.cov_Pos = 10 * np.eye(3)                                            # covariance for position
+        self.cov_accel = 0.1 * np.eye(3)                                         # covariance for accel
+        self.cov_omega = 0.1 * np.eye(3)                                         # covariance for ang vel
+        self.P = block_diag(self.cov_omega, self.cov_accel,self.cov_Pos)         #combined cov
+        self.Q = block_diag(self.cov_omega, self.cov_accel)                      #process noise covariance
+        self.N = np.eye(3)                                                       #GPS noise covariance
 
         self.prev_t = 0.0
-        self.g = np.zeros((3,1))
-        self.g[0,] = 9.81
+        self.g = np.zeros((3,1))           #gravity vector (should be in body frame)
+        self.g[2] = -9.81                  
 
-
-        #TODO: initialize initial values... also does it make sense to store these separately?
-        ##imu data from callback
-        # self.imu_omega = None #ang vel
-        # self.imu_accel = None #lin accel possibly incorporate for correction?
-        # self.imu_orientation = None #quat,
-
-        ##gps data from callback
-        # self.gps_pos = None
-        # self.gps_orientation = None #quat, but gps doesn't actually provide this
-    def imu_callback(self, imu_msg: Imu): #AKA prediction
-        # TODO: integrate into IEKF
-        # TODO: Couldn't figure out how to get this to publish from gazebo
+    def imu_callback(self, imu_msg: Imu): #prediction
         # You can see the values if you run the sim and "gz topic --echo --topic /cf_0/imu"
-        omega = imu_msg.angular_velocity #gyro
-        accel = imu_msg.linear_acceleration #check if (3,1)
-        orientation = imu_msg.orientation
+        omega = imu_msg.angular_velocity #should be (3,1)
+        accel = imu_msg.linear_acceleration #should be (3,1)
         curr_t = imu_msg.header.stamp.sec
         dt = curr_t - self.prev_t
         self.prev_time = curr_t
 
-
         phi = omega*dt
-
+        phi_wedge = wedge(phi) #so(3) wedge
+        norm = np.linalg.norm()
+        gamma0 = np.eye(3) + np.sin(norm(phi))/norm(phi) *  phi_wedge+ (1-np.cos(norm(phi)))/norm(phi)**2 * (phi_wedge@phi_wedge)
+        gamma1 = np.eye(3) + (1-np.cos(norm(phi)))/norm(phi)**2 * phi_wedge + ((norm(phi) - np.sin(norm(phi)))/norm(phi)**3) * (phi_wedge@phi_wedge)
+        gamma2 = .5*np.eye(3) + ((norm(phi) - np.sin(norm(phi)))/norm(phi)**3) * phi_wedge + ((norm(phi)**2 + 2*np.cos(norm(phi)) -2 ) / (2*norm(phi)**4)) * (phi_wedge@phi_wedge)
 
         #predict position
-        norm = np.linalg.norm()
-        phi_hat = wedge(phi)
-        # gamma0 = np.eye(3) + np.sin(norm(phi))/norm(phi) *  phi_hat+ (1-np.cos(norm(phi)))/norm(phi)**2 * (phi_hat@phi_hat)
-        gamma1 = np.eye(3) + (1-np.cos(norm(phi)))/norm(phi)**2 * phi_hat + ((norm(phi) - np.sin(norm(phi)))/norm(phi)**3) * (phi_hat@phi_hat)
-        gamma2 = .5*np.eye(3) + ((norm(phi) - np.sin(norm(phi)))/norm(phi)**3) * phi_hat + ((norm(phi)**2 + 2*np.cos(norm(phi)) -2 ) / (2*norm(phi)**4)) * (phi_hat@phi_hat)
-
-        
-        self.X = self.X @ self.vel*dt + self.R@gamma2@accel*dt**2 + .5*self.g*dt**2
+        self.Pos = self.Pos + self.vel*dt + self.R@gamma2@accel*dt**2 + .5*self.g*dt**2
         self.vel = self.vel + self.R@ gamma1 @ accel *dt +  self.g*dt
+
         #predict orientation state
-        self.R = self.R @ expm(wedge(phi)) #need to correct omega_g?
+        self.R = self.R @ expm(wedge(phi))
+        # self.X = wedge_se2_3(self.R,self.vel,self.Pos)
 
-        #predict orientation cov
-
-      
-        
-
-
-
+        #predict cov
+        stm11 = gamma0.T
+        stm21 = -stm11@wedge(gamma1@accel)*dt
+        stm31 = -stm11@wedge(gamma2@accel)*dt**2
+        # stm22 = stm11
+        stm32 = stm11*dt
+        # stm33 = stm11
+        stm = np.block([[stm11,np.zeros((3,3)),np.zeros((3,3))],[stm21,stm11,np.zeros((3,3))],[stm31,stm32,stm11]])
+        self.P = stm@self.P@stm.T + self.Q #adj
         return
 
-    def pose_callback(self, pose_msg: PoseStamped): #AKA Correction
-        # TODO: integrate into IEKF (treat this as GPS)
+    def pose_callback(self, pose_msg: PoseStamped): #correction
         # TODO: this should eventually be slowed down to publish more infrequently
-        gps_pos = pose_msg.pose.position
 
-        correction(self)
+        #position measurement from GPS
+        yk = np.array([[pose_msg.pose.position.x], [pose_msg.pose.position.y], [pose_msg.pose.position.z]]) #(5,1)
+        H = np.block([np.zeros((3, 3)), np.zeros((3, 3)), np.eye(3)]) #(3,9) Measurement Jacobian
+        S = H @ self.P @ H.T + self.N #(3,3)
+        L = self.P @ H.T @ np.linalg.inv(S) #(9,3)
+        b = np.zeros((3,1))
+        b[-1] = 1
+        self.X = expm(wedge_error(L@(np.linalg.inv(self.Pos)@yk - b))) @ self.X #output of L@inv(X)@Y -b is 9x1. wedge_error makes 5x5
         return
-
-
-
 
     def odom_callback(self, odom_msg: Odometry):
         # This is our "ground truth odometry"
@@ -122,77 +109,6 @@ class IEKF(Node):
         # TODO: nothing for now
         return
 
-## iekf computation ##
-def prediction(self, omega, accel, dt):
-    """
-    @param omega: gyroscope reading
-    @param accel: accelerometer reading
-    @param dt:    time step
-    """
-    #not really doing kalman filtering by directly using orientation...
-    self.R = self.f(self.R,omega,dt)
-    self.X = 
-    self.P = (self.Phi @ self.P @ self.Phi.T + adjoint(self.R)@self.Q@adjoint(self.R).T)
-    return
-
-def correction(self, pos, orient):
-    """
-    @param pos: GPS position
-    @param orient: GPS orientation
-    """
-    H = self.H(g) #meas jacobian
-    N = self.R @ self.N @ self.R.T
-    S = H @ self.P @ H.T + N
-    L = self.P @ H.T @np.linalg.inv(S) # this is the new kalman gain
-
-    # Update state
-    # wedge(XY -g) maps from gaussian noise vector to lie algebra. Then expm maps lie algebra to lie group
-    self.X =  expm(wedge(L@(self.X@Y.reshape((3,1)) - g.reshape((3,1))))) @ self.X
-
-    # Update Covariance
-    self.P = (np.eye(3) - L@H) @ self.P @ (np.eye(3) - L@H).T + L@N@L.T
-
-    return
-def imu_motion_model(R, omega, dt):
-    """
-    @param  R:      State variable (3, 3)
-    @param  omega:  gyroscope reading (3,)
-    @param  dt:     time step
-    @return R_pred: predicted state variable (3, 3)
-    """
-    R_pred = np.zeros((3,3)) # placeholder
-    R_pred = R @ expm(wedge(omega* dt))  #lie algebra map
-
-    return R_pred
-def imu_measurement_Jacobain(g):
-    """
-    @param  g: gravity (3,)
-    @return H: measurement Jacobain (3, 3)
-    """
-    H = np.zeros((3,3)) # placeholder
-    # H = np.array([[0,-g[2],g[1]],[g[2],0,-g[0]],[-g[1],g[0],0]])
-    H = wedge(g)
-    return H
-def gps_motion_model(R, omega, dt):
-    """
-    @param  R:      State variable (3, 3)
-    @param  omega:  gyroscope reading (3,)
-    @param  dt:     time step
-    @return R_pred: predicted state variable (3, 3)
-    """
-    R_pred = np.zeros((3,3)) # placeholder
-    R_pred = R @ expm(wedge(omega* dt))  #lie algebra map
-
-    return R_pred
-def gps_measurement_Jacobain(g):
-    """
-    @param  g: gravity (3,)
-    @return H: measurement Jacobain (3, 3)
-    """
-    H = np.zeros((3,3)) # placeholder
-    # H = np.array([[0,-g[2],g[1]],[g[2],0,-g[0]],[-g[1],g[0],0]])
-    H = wedge(g)
-    return H
 def wedge(phi):
     """
     R^3 vector to so(3) matrix
@@ -204,13 +120,34 @@ def wedge(phi):
                     [phi[2], 0, -phi[0]],
                     [-phi[1], phi[0], 0]])
     return Phi
+
+def wedge_se2_3(R, v, p):
+    """
+    R matrix, v, p to se2(3) matrix
+    @param  R: Rotation matrix
+    @param  v: velocity vector(3,1)
+    @param  p: position vector(3,1)
+    @return X: se2(3) matrix
+    """
+    X = block_diag(R,np.ones(1),np.ones(1)) #(5,5)
+    X[0:3,3] = v.squeeze()
+    X[0:3,4] = p.squeeze()
+    return X
+def wedge_error(v):
+    rot_err = v[0:3].reshape((3,1))       # rotation error
+    vel_err = v[3:6].reshape((3,1))       # velocity error
+    pos_err = v[6:9].reshape((3,1))       # position error
+
+    rot_err = wedge(rot_err)
+
+    return wedge_se2_3(rot_err,vel_err,pos_err)
+
 def adjoint(R):
     """
     Adjoint of SO3 Adjoint (R) = R
     """
     return R
 
-## iekf computation ##
 def main():
     rclpy.init()
     node = IEKF()
