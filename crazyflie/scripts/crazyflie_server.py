@@ -100,7 +100,7 @@ class CrazyflieServer(Node):
                                           'stabilizer.roll', 'stabilizer.pitch', 'stabilizer.yaw'],
                                  "scan": ['range.front', 'range.left', 'range.back', 'range.right'],
                                  "imu": ['acc.x','acc.y','acc.z',
-                                         'attitude.roll', 'attitude.pitch', 'attitude.yaw'],
+                                        ],
                                  "odom": ['stateEstimate.x', 'stateEstimate.y', 'stateEstimate.z',
                                           'stabilizer.yaw', 'stabilizer.roll', 'stabilizer.pitch',
                                           'kalman.statePX', 'kalman.statePY', 'kalman.statePZ',
@@ -604,9 +604,8 @@ class CrazyflieServer(Node):
         acc_z = data.get("acc.z")
 
         msg = Imu()
-        msg.child_frame_id = cf_name
         msg.header.stamp = self.get_clock().now().to_msg()
-        msg.header.frame_id = self.world_tf_name
+        msg.header.frame_id = cf_name
 
         msg.linear_acceleration.x = acc_x
         msg.linear_acceleration.y = acc_y
