@@ -50,7 +50,9 @@ def read_odometry(bag_path, topics):
         vx = odom.twist.twist.linear.x
         vy = odom.twist.twist.linear.y
         vz = odom.twist.twist.linear.z
-        speed = np.linalg.norm((vx, vy, vz))
+        # speed = np.linalg.norm((vx, vy, vz))
+        speed = vz
+
 
         entry = data[topic_name]
         entry['times'].append(ts)
@@ -83,7 +85,7 @@ def plot_trajectories(data, topics, output_prefix):
         spd   = spd[order]
 
         # XY
-        ax1.plot(pos[:,0], pos[:,1], label=t)
+        ax1.plot(pos[:,0], pos[:,2], label=t)
         # speed vs time
         ax2.plot(times - times[0], spd, label=t)
         any_plotted = True
@@ -93,8 +95,8 @@ def plot_trajectories(data, topics, output_prefix):
 
     # finalize XY plot
     ax1.set_xlabel('X [m]')
-    ax1.set_ylabel('Y [m]')
-    ax1.set_title('XY Trajectories')
+    ax1.set_ylabel('Z [m]')
+    ax1.set_title('XZ Trajectories')
     ax1.axis('equal')
     ax1.legend()
     ax1.grid(True)

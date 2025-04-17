@@ -123,7 +123,7 @@ class IEKF(Node):
         xi_p = xi[6:9].reshape(3, 1)      # Position error
         
 
-        self.R = self.R @ self.exp_so3(xi_theta)
+        self.R =  self.exp_so3(xi_theta)@ self.R
         
         self.v = self.v + xi_v
         
