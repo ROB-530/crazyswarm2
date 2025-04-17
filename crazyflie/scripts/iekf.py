@@ -48,7 +48,8 @@ class IEKF(Node):
         self.Q = np.eye(9) * 0.01                         # Process noise covariance (9x9)
         self.N = np.eye(3) * 0.1                          # Measurement noise covariance (3x3)
 
-        self.g = np.array([[0], [0], [-9.81]])
+        self.g = np.array([[0], [0], [9.81]])
+
         
 
         self.prev_t = None
@@ -62,7 +63,7 @@ class IEKF(Node):
                           [imu_msg.angular_velocity.y], 
                           [imu_msg.angular_velocity.z]])
         
-        a = np.array([[imu_msg.linear_acceleration.x], 
+        a = -9.81*np.array([[imu_msg.linear_acceleration.x], 
                       [imu_msg.linear_acceleration.y], 
                       [imu_msg.linear_acceleration.z]])
         
@@ -109,7 +110,7 @@ class IEKF(Node):
                       [pose_msg.pose.position.y], 
                       [pose_msg.pose.position.z]])
         
-        b_k = self.R.T @ (y - self.p)
+        b_k = self.R.T @ (y)- self.p #
         
         H = np.zeros((3, 9))
         H[:, 6:9] = np.eye(3)
