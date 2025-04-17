@@ -29,7 +29,7 @@ class IEKF(Node):
         )
 
         imu_topic = self.get_parameter("imu_topic").value
-        # pose_topic = self.get_parameter("pose_topic").value
+        pose_topic = self.get_parameter("pose_topic").value
         odom_topic = self.get_parameter("odom_topic").value
         output_topic = self.get_parameter("iekf_output_topic").value
 

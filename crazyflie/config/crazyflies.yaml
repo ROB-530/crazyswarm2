@@ -76,7 +76,7 @@ all:
     default_topics:
      # remove to disable default topic
       pose:
-        frequency: 10 # Hz
+        frequency: 1 # Hz
       status:
         frequency: 1 # Hz
       odom:
