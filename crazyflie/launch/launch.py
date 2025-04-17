@@ -122,7 +122,7 @@ def generate_launch_description():
         DeclareLaunchArgument('backend', default_value='cpp'),
         DeclareLaunchArgument('debug', default_value='False'),
         DeclareLaunchArgument('rviz', default_value='False'),
-        DeclareLaunchArgument('gui', default_value='True'),
+        DeclareLaunchArgument('gui', default_value='False'),
         DeclareLaunchArgument('teleop', default_value='True'),
         DeclareLaunchArgument('mocap', default_value='True'),
         DeclareLaunchArgument('teleop_yaml_file', default_value=''),
@@ -179,6 +179,14 @@ def generate_launch_description():
                 Path(get_package_share_directory("crazyflie"), "config", "iekf.yaml"),
             ]
         ),
+        Node(
+            package='ros_gz_bridge',
+            executable='parameter_bridge',
+            name='iekf_bridge',
+            arguments=[
+                "/cf_1/iekf_pose@nav_msgs/msg/Odometry@gz.msgs.Odometry",
+            ]
+        )
         # Node(
         #     package='crazyflie',
         #     executable='imu_data_pub.py',
@@ -187,4 +195,3 @@ def generate_launch_description():
         # ),
 
     ])
-get_package_share_directory
