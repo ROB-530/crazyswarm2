@@ -29,13 +29,13 @@ class IEKF(Node):
         )
 
         imu_topic = self.get_parameter("imu_topic").value
-        pose_topic = self.get_parameter("pose_topic").value
+        # pose_topic = self.get_parameter("pose_topic").value
         odom_topic = self.get_parameter("odom_topic").value
         output_topic = self.get_parameter("iekf_output_topic").value
 
         # subscribers
         self.imu_sub = self.create_subscription(Imu, imu_topic, self.imu_callback, 1)
-        # self.pose_sub = self.create_subscription(PoseStamped, pose_topic, self.pose_callback, 1)
+        self.pose_sub = self.create_subscription(PoseStamped, pose_topic, self.pose_callback, 1)
         self.odom_sub = self.create_subscription(Odometry, odom_topic, self.odom_callback, 1)
 
         # publishers
@@ -52,13 +52,13 @@ class IEKF(Node):
         self.X = np.eye(5,dtype=np.float64)                                                   # combined state vector
 
         #TODO:block diag of cov_omega,cov_accel,cov_position and these should be fixed values
-        self.cov_Pos = 1 * np.eye(3,dtype=np.float64)                                            # covariance for position
-        self.cov_accel = 1 * np.eye(3,dtype=np.float64)                                         # covariance for accel
-        self.cov_omega = 1 * np.eye(3,dtype=np.float64)                                         # covariance for ang vel
+        self.cov_Pos = .1 * np.eye(3,dtype=np.float64)                                            # covariance for position
+        self.cov_accel = .1 * np.eye(3,dtype=np.float64)                                         # covariance for accel
+        self.cov_omega = .1 * np.eye(3,dtype=np.float64)                                         # covariance for ang vel
 
-        self.cov_omega_noise= np.random.normal(loc=0,scale=1,size=(3,3))
-        self.cov_accel_noise = np.random.normal(loc=0,scale=1,size=(3,3))
-        self.cov_Pos_noise = np.random.normal(loc=0,scale=1,size=(3,3))
+        self.cov_omega_noise= .1*np.random.normal(loc=0,scale=1,size=(3,3))
+        self.cov_accel_noise = .1*np.random.normal(loc=0,scale=1,size=(3,3))
+        self.cov_Pos_noise = .1*np.random.normal(loc=0,scale=1,size=(3,3))
         self.P = block_diag(self.cov_omega, self.cov_accel,self.cov_Pos)         #combined cov
         self.Q = block_diag(self.cov_omega_noise, self.cov_accel_noise,self.cov_Pos_noise)                      #process noise covariance
         self.N = np.eye(3,dtype=np.float64)                                                       #GPS noise covariance
@@ -84,7 +84,7 @@ class IEKF(Node):
             self.init_time_bool = True
             return
         dt = curr_t - self.prev_t
-        self.prev_time = curr_t
+        self.prev_t = curr_t
 
         phi = omega * dt
         norm_phi = norm(phi)
@@ -120,6 +120,9 @@ class IEKF(Node):
         # stm33 = stm11
         stm = np.block([[stm11,np.zeros((3,3)),np.zeros((3,3))],[stm21,stm11,np.zeros((3,3))],[stm31,stm32,stm11]])
         self.P = stm@self.P@stm.T + self.Q #adj
+
+        #
+        self.X = wedge_se2_3(self.R,self.vel,self.Pos)
         return 
 
     def pose_callback(self, pose_msg: PoseStamped): #correction
@@ -133,7 +136,7 @@ class IEKF(Node):
         b = np.zeros((5,1))
         b[-1] = 1
         vk = np.linalg.inv(self.X)@yk - b
-        self.X = expm(wedge_error(L@vk[:3])) @ self.X
+        self.X = self.X @ expm(wedge_error(L@vk[:3]))
 
         #correct individual vars
         self.R = self.X[0:3, 0:3]
@@ -146,6 +149,9 @@ class IEKF(Node):
         self.get_logger().info("me try publish")
 
         r = R.from_matrix(self.R)
+
+
+
         quat = r.as_quat() #should be scalar last (x,y,z,w)
         p = Point()
         p.x = float(self.Pos[0])
