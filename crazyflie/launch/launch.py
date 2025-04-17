@@ -171,14 +171,14 @@ def generate_launch_description():
                 "use_sim_time": PythonExpression(["'", LaunchConfiguration('backend'), "' == 'sim'"]),
             }]
         ),
-        # Node(
-        #     package='crazyflie',
-        #     executable='iekf.py',
-        #     name='gui',
-        #     parameters=[
-        #         Path(get_package_share_directory("crazyflie"), "config", "iekf.yaml"),
-        #     ]
-        # ),
+        Node(
+            package='crazyflie',
+            executable='iekf.py',
+            name='iekfs',
+            parameters=[
+                Path(get_package_share_directory("crazyflie"), "config", "iekf.yaml"),
+            ]
+        ),
         # Node(
         #     package='crazyflie',
         #     executable='imu_data_pub.py',

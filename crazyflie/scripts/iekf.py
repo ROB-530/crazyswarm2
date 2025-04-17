@@ -20,7 +20,8 @@ class IEKF(Node):
         self.declare_parameters(
             "",
             [
-                ("imu_topic", "/fake_imu"),
+                # ("imu_topic", "/fake_imu"),
+                ("imu_topic", "/cf_1/imu"),
                 ("pose_topic", "/cf_1/pose"),
                 ("odom_topic", "/cf_1/odom"),
                 ("iekf_output_topic", "/cf_1/iekf_pose")
@@ -34,7 +35,7 @@ class IEKF(Node):
 
         # subscribers
         self.imu_sub = self.create_subscription(Imu, imu_topic, self.imu_callback, 1)
-        self.pose_sub = self.create_subscription(PoseStamped, pose_topic, self.pose_callback, 1)
+        # self.pose_sub = self.create_subscription(PoseStamped, pose_topic, self.pose_callback, 1)
         self.odom_sub = self.create_subscription(Odometry, odom_topic, self.odom_callback, 1)
 
         # publishers
@@ -64,7 +65,8 @@ class IEKF(Node):
 
         self.prev_t = 0.0
         self.g = np.zeros((3,1),dtype=np.float64)           #gravity vector (should be in body frame)
-        self.g[2] = -9.81                  
+        self.g[2] = -9.81       
+        self.init_time_bool = False
 
     def imu_callback(self, imu_msg: Imu): #prediction
         # You can see the values if you run the sim and "gz topic --echo --topic /cf_0/imu"
@@ -74,15 +76,33 @@ class IEKF(Node):
         accel = np.array([imu_msg.linear_acceleration.x,
                       imu_msg.linear_acceleration.y,
                       imu_msg.linear_acceleration.z]).reshape((3, 1))
-        curr_t = imu_msg.header.stamp.sec
+        
+        #skip first iteration to get prev_time
+        curr_t = imu_msg.header.stamp.sec + (imu_msg.header.stamp.nanosec * 1e-9)
+        if self.init_time_bool == False:
+            self.prev_t = curr_t
+            self.init_time_bool = True
+            return
         dt = curr_t - self.prev_t
         self.prev_time = curr_t
 
-        phi = omega*dt
-        phi_wedge = wedge(phi) #so(3) wedge
-        gamma0 = np.eye(3) + np.sin(norm(phi))/norm(phi) *  phi_wedge+ (1-np.cos(norm(phi)))/norm(phi)**2 * (phi_wedge@phi_wedge)
-        gamma1 = np.eye(3) + (1-np.cos(norm(phi)))/norm(phi)**2 * phi_wedge + ((norm(phi) - np.sin(norm(phi)))/norm(phi)**3) * (phi_wedge@phi_wedge)
-        gamma2 = .5*np.eye(3) + ((norm(phi) - np.sin(norm(phi)))/norm(phi)**3) * phi_wedge + ((norm(phi)**2 + 2*np.cos(norm(phi)) -2 ) / (2*norm(phi)**4)) * (phi_wedge@phi_wedge)
+        phi = omega * dt
+        norm_phi = norm(phi)
+        phi_wedge = wedge(phi)
+
+        if norm_phi < 1e-5:
+            gamma0 = np.eye(3) + phi_wedge
+            gamma1 = np.eye(3) + 0.5 * phi_wedge
+            gamma2 = (1/6) * np.eye(3) + (1/24) * phi_wedge
+        else:
+            gamma0 = np.eye(3) + (np.sin(norm_phi) / norm_phi) * phi_wedge + \
+                    ((1 - np.cos(norm_phi)) / norm_phi**2) * (phi_wedge @ phi_wedge)
+
+            gamma1 = np.eye(3) + ((1 - np.cos(norm_phi)) / norm_phi**2) * phi_wedge + \
+                    ((norm_phi - np.sin(norm_phi)) / norm_phi**3) * (phi_wedge @ phi_wedge)
+
+            gamma2 = 0.5 * np.eye(3) + ((norm_phi - np.sin(norm_phi)) / norm_phi**3) * phi_wedge + \
+                    ((norm_phi**2 + 2 * np.cos(norm_phi) - 2) / (2 * norm_phi**4)) * (phi_wedge @ phi_wedge)
 
         #predict position
         self.Pos = self.Pos + self.vel*dt + self.R@gamma2@accel*dt**2 + .5*self.g*dt**2
@@ -90,7 +110,6 @@ class IEKF(Node):
 
         #predict orientation state
         self.R = self.R @ expm(wedge(phi))
-        # self.X = wedge_se2_3(self.R,self.vel,self.Pos)
 
         #predict cov
         stm11 = gamma0.T
@@ -107,13 +126,19 @@ class IEKF(Node):
         # TODO: this should eventually be slowed down to publish more infrequently
 
         #position measurement from GPS
-        yk = np.array([[pose_msg.pose.position.x], [pose_msg.pose.position.y], [pose_msg.pose.position.z]]) #(5,1)
+        yk = np.array([[pose_msg.pose.position.x], [pose_msg.pose.position.y], [pose_msg.pose.position.z],[0.0],[1.0]]) #(5,1)
         H = np.block([np.zeros((3, 3)), np.zeros((3, 3)), np.eye(3)]) #(3,9) Measurement Jacobian
         S = H @ self.P @ H.T + self.N #(3,3)
         L = self.P @ H.T @ np.linalg.inv(S) #(9,3)
-        b = np.zeros((3,1))
+        b = np.zeros((5,1))
         b[-1] = 1
-        self.X = expm(wedge_error(L@(np.linalg.inv(self.Pos)@yk - b))) @ self.X #output of L@inv(X)@Y -b is 9x1. wedge_error makes 5x5
+        vk = np.linalg.inv(self.X)@yk - b
+        self.X = expm(wedge_error(L@vk[:3])) @ self.X
+
+        #correct individual vars
+        self.R = self.X[0:3, 0:3]
+        self.vel = self.X[0:3, 3].reshape((3,1))
+        self.Pos = self.X[0:3, 4].reshape((3,1))
         return
     
     def timer_callback(self):

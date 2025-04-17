@@ -10,7 +10,7 @@ class MinimalPublisher(Node):
     def __init__(self):
         super().__init__('fake_imu_pub')
         self.publisher_ = self.create_publisher(Imu, 'fake_imu', 10)
-        timer_period = 0.5  # seconds
+        timer_period = 0.2  # seconds
         self.timer = self.create_timer(timer_period, self.timer_callback)
         self.i = 0
 

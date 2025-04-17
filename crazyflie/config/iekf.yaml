@@ -3,4 +3,5 @@
     pose_topic: "/cf_1/pose" 
     odom_topic: "/cf_1/odom"
     iekf_output_topic: "/cf_1/iekf_pose"
-    imu_topic: "/cf_1/imu" # TODO: didn't get this working
+    # imu_topic: /fake_imu
+    imu_topic: "/cf_1/imu"
