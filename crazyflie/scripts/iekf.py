@@ -9,32 +9,32 @@ from sensor_msgs.msg import Imu
 from geometry_msgs.msg import PoseStamped, Point, Quaternion, Twist, Pose, PoseWithCovariance, TwistWithCovariance
 from nav_msgs.msg import Odometry
 
+from tf2_ros import TransformBroadcaster
+from geometry_msgs.msg import TransformStamped
+
+
 class IEKF(Node):
     def __init__(self):
         super().__init__("iekf")
 
-        self.declare_parameters(
-            "",
-            [
-                ("imu_topic", "/cf_1/imu"),
-                ("pose_topic", "/cf_1/pose"),
-                ("odom_topic", "/cf_1/odom"),
-                ("iekf_output_topic", "/cf_1/iekf_pose")
-            ]
-        )
+        self.declare_parameter('imu_topic',        '/cf_1/imu')
+        self.declare_parameter('pose_topic',       '/cf_1/pose')
+        self.declare_parameter('odom_topic',       '/cf_1/odom')
+        self.declare_parameter('iekf_output_topic','/cf_1/iekf_pose')
 
         imu_topic = self.get_parameter("imu_topic").value
         pose_topic = self.get_parameter("pose_topic").value
         odom_topic = self.get_parameter("odom_topic").value
         output_topic = self.get_parameter("iekf_output_topic").value
 
-        # subscribers
+        # subscribersa
         self.imu_sub = self.create_subscription(Imu, imu_topic, self.imu_callback, 1)
         self.pose_sub = self.create_subscription(PoseStamped, pose_topic, self.pose_callback, 1)
         self.odom_sub = self.create_subscription(Odometry, odom_topic, self.odom_callback, 1)
 
         # publishers
         self.pose_pub = self.create_publisher(Odometry, output_topic, 1)
+        self.tf_broadcaster = TransformBroadcaster(self)
 
         # timers
         self.ekf_timer = self.create_timer(0.002, self.timer_callback)
@@ -152,6 +152,20 @@ class IEKF(Node):
         q.y = float(quat[1])
         q.z = float(quat[2])
         q.w = float(quat[3])
+
+        t = TransformStamped()
+        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.frame_id = '/cf_1'        # parent stays the same
+        t.child_frame_id  = '/cf_1/iekf_pose'   # new frame name
+
+        t.transform.translation.x = p.x
+        t.transform.translation.y = p.y
+        t.transform.translation.z = p.z
+
+        t.transform.rotation = q
+
+        # send it into /tf
+        self.tf_broadcaster.sendTransform(t)
         
         twist = Twist()
         twist.angular.x = 0.0
@@ -189,7 +203,7 @@ class IEKF(Node):
         
         odom_output.header.stamp = self.get_clock().now().to_msg()
         odom_output.header.frame_id = "odom"
-        odom_output.child_frame_id = "base_link"
+        odom_output.child_frame_id = "iekf_pose"
         
         self.pose_pub.publish(odom_output)
 
