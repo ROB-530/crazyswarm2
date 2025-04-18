@@ -65,54 +65,61 @@ def read_odometry(bag_path, topics):
 
 def plot_trajectories(data, topics, output_prefix):
     plt.rcParams.update({'figure.autolayout': True})
-    # 3D trajectory plot
-    fig1 = plt.figure(figsize=(8,8))
-    ax1 = fig1.add_subplot(111, projection='3d')
-    # speed vs time plot
-    fig2, ax2 = plt.subplots(figsize=(8,4))
 
-    any_plotted = False
-    for t in topics:
-        times = np.array(data[t]['times'])
-        if times.size == 0:
-            print(f"[WARN] no messages on {t}, skipping.")
+    def chunks(lst, n):
+        """Yield successive n-sized chunks from lst."""
+        for i in range(0, len(lst), n):
+            yield lst[i:i + n]
+
+    for i, topic_group in enumerate(chunks(topics, 2), start=1):
+        group_label = f"Group {i}"
+        group_output = f"{output_prefix}_group{i}"
+
+        fig1 = plt.figure(figsize=(8, 8))
+        ax1 = fig1.add_subplot(111, projection='3d')
+        fig2, ax2 = plt.subplots(figsize=(8, 4))
+
+        any_plotted = False
+        for t in topic_group:
+            times = np.array(data[t]['times'])
+            if times.size == 0:
+                print(f"[WARN] no messages on {t}, skipping.")
+                continue
+
+            pos = np.stack(data[t]['positions'], axis=0)
+            spd = np.array(data[t]['speeds'])
+
+            order = np.argsort(times)
+            times = times[order]
+            pos = pos[order]
+            spd = spd[order]
+
+            ax1.plot(pos[:, 0], pos[:, 1], pos[:, 2], label=t)
+            ax2.plot(times - times[0], spd, label=t)
+            any_plotted = True
+
+        if not any_plotted:
+            print(f"[WARN] No data to plot for {group_label}.")
             continue
 
-        pos = np.stack(data[t]['positions'], axis=0)
-        spd = np.array(data[t]['speeds'])
+        ax1.set_xlabel('X [m]')
+        ax1.set_ylabel('Y [m]')
+        ax1.set_zlabel('Z [m]')
+        ax1.set_title(f'{group_label} - 3D Trajectories')
+        ax1.legend()
+        ax1.grid(True)
+        fig1.savefig(f"{group_output}_traj3d.png", dpi=200)
 
-        order = np.argsort(times)
-        times = times[order]
-        pos = pos[order]
-        spd = spd[order]
-
-        # plot 3D trajectory
-        ax1.plot(pos[:, 0], pos[:, 1], pos[:, 2], label=t)
-        # plot speed vs time
-        ax2.plot(times - times[0], spd, label=t)
-        any_plotted = True
-
-    if not any_plotted:
-        raise RuntimeError("No data to plot for any topic!")
-
-    # finalize 3D plot
-    ax1.set_xlabel('X [m]')
-    ax1.set_ylabel('Y [m]')
-    ax1.set_zlabel('Z [m]')
-    ax1.set_title('3D Trajectories')
-    ax1.legend()
-    ax1.grid(True)
-    fig1.savefig(f"{output_prefix}_traj3d.png", dpi=200)
-
-    # finalize speed plot
-    ax2.set_xlabel('Time [s] since start')
-    ax2.set_ylabel('Speed [m/s]')
-    ax2.set_title('Linear Speed over Time')
-    ax2.legend()
-    ax2.grid(True)
-    fig2.savefig(f"{output_prefix}_speed.png", dpi=200)
+        ax2.set_xlabel('Time [s] since start')
+        ax2.set_ylabel('Speed [m/s]')
+        ax2.set_title(f'{group_label} - Linear Speed over Time')
+        ax2.legend()
+        ax2.grid(True)
+        fig2.savefig(f"{group_output}_speed.png", dpi=200)
 
     plt.show()
+
+
 
 
 if __name__ == '__main__':
@@ -120,9 +127,9 @@ if __name__ == '__main__':
         description='Compare two nav_msgs/Odometry topics in a ROS 2 Humble bag')
     parser.add_argument('--bag', '-b', required=True,
                         help='Path to the ROS 2 bag directory')
-    parser.add_argument('--topics', '-t', nargs=2, required=True,
-                        metavar=('TOPIC1','TOPIC2'),
-                        help='Two Odometry topics to compare')
+    parser.add_argument('--topics', '-t', nargs='+', required=True,
+                        metavar='TOPIC',
+                        help='Odometry topics to compare (grouped in pairs)')
     parser.add_argument('--output', '-o', default='odometry_compare',
                         help='Prefix for output PNG files')
     args = parser.parse_args()
