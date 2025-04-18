@@ -1,0 +1,7 @@
+/iekf:
+  ros__parameters:
+    pose_topic: "/cf_1/pose" 
+    # odom_topic: "/cf_2/odom"
+    iekf_input_topic: "/cf_1/iekf_pose"
+    # imu_topic: /fake_imu
+    imu_topic: "/cf_1/imu"
