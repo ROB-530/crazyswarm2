@@ -6,263 +6,162 @@ from scipy.linalg import expm
 from numpy.linalg import inv
 from scipy.spatial.transform import Rotation as R
 from sensor_msgs.msg import Imu
-from geometry_msgs.msg import PoseStamped, Point, Quaternion, Twist, Pose, PoseWithCovariance, TwistWithCovariance
+from geometry_msgs.msg import Point, Quaternion, Twist, Pose, PoseWithCovariance, TwistWithCovariance
 from nav_msgs.msg import Odometry
+from geometry_msgs.msg import Vector3
+from tf2_ros import TransformBroadcaster, Buffer, TransformListener, LookupException, ConnectivityException, ExtrapolationException
+from geometry_msgs.msg import TransformStamped
 
 class IEKF(Node):
     def __init__(self):
         super().__init__("iekf")
+        # parameters
+        self.declare_parameter('imu_topic',        '/cf_2/imu')
+        self.declare_parameter('pose_frame',       'cf_1/iekf_pose')  # TF frame for RF sensor input
+        self.declare_parameter('odom_topic',       '/cf_2/odom')
+        self.declare_parameter('iekf_output_topic','/cf_2/iekf_pose')
 
-        self.declare_parameters(
-            "",
-            [
-                ("imu_topic", "/cf_2/imu"),
-                ("pose_topic", "/cf_2/pose"),
-                # ("odom_topic", "/cf_1/odom"),
-                ("iekf_output_topic", "/cf_2/iekf_pose")
-            ]
-        )
+        imu_topic    = self.get_parameter("imu_topic").value
+        self.pose_frame = self.get_parameter("pose_frame").value
+        odom_topic    = self.get_parameter("odom_topic").value
+        output_topic  = self.get_parameter("iekf_output_topic").value
 
-        imu_topic = self.get_parameter("imu_topic").value
-        pose_topic = self.get_parameter("pose_topic").value
-        odom_topic = self.get_parameter("odom_topic").value
-        output_topic = self.get_parameter("iekf_output_topic").value
+        # subscriptions
+        self.imu_sub  = self.create_subscription(Imu, imu_topic, self.imu_callback, 1)
+        self.odom_sub = self.create_subscription(Odometry, odom_topic, self.odom_callback, 1)
 
-        # subscribers
-        self.imu_sub = self.create_subscription(Imu, imu_topic, self.imu_callback, 1)
-        self.pose_sub = self.create_subscription(PoseStamped, pose_topic, self.pose_callback, 1)
-        # self.odom_sub = self.create_subscription(Odometry, odom_topic, self.odom_callback, 1)
+        # publishers & broadcaster
+        self.pose_pub       = self.create_publisher(Odometry, output_topic, 1)
+        self.tf_broadcaster = TransformBroadcaster(self)
 
-        # publishers
-        self.pose_pub = self.create_publisher(Odometry, output_topic, 1)
+        # TF listener
+        self.tf_buffer   = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
 
         # timers
-        self.ekf_timer = self.create_timer(0.002, self.timer_callback)
+        self.ekf_timer       = self.create_timer(0.002, self.timer_callback)
+        self.rf_sensor_timer = self.create_timer(0.1,   self.rf_sensor_timer_callback)  # 10 Hz
 
-        self.R = np.eye(3)                                # Rotation matrix (orientation)
-        self.v = np.zeros((3, 1))                         # Velocity
-        self.p = np.zeros((3, 1))                         # Position
-        self.X = self.compose_state_matrix(self.R, self.v, self.p)  # Combined state matrix
-
-        self.P = np.eye(9) * 1.0                          # Error state covariance (9x9)
-        self.Q = np.eye(9) * 1.0                          # Process noise covariance (9x9)
-        self.N = np.eye(3) * 1.0                          # Measurement noise covariance (3x3)
-
-        self.g = np.array([[0], [0], [-9.81]])
-
-        
-
+        # state initialization
+        self.R = np.eye(3)
+        self.v = np.zeros((3,1))
+        self.p = np.zeros((3,1))
+        self.X = self.compose_state_matrix(self.R, self.v, self.p)
+        self.P = np.eye(9) * 1.0
+        self.Q = np.eye(9) * 1.0
+        self.N = np.eye(3) * 1.0
+        self.g = np.array([[0],[0],[-9.81]])
         self.prev_t = None
-        self.get_logger().info("IEKF initialized")
+
+        self.get_logger().info("IEKF initialized with RF sensor timer at 10 Hz")
 
     def imu_callback(self, imu_msg: Imu):
-        """
-        Propagation step using IMU measurements (angular velocity and acceleration)
-        """
-        omega = np.array([[imu_msg.angular_velocity.x], 
-                          [imu_msg.angular_velocity.y], 
+        # propagation step unchanged
+        omega = np.array([[imu_msg.angular_velocity.x],
+                          [imu_msg.angular_velocity.y],
                           [imu_msg.angular_velocity.z]])
-        
-        a = 9.81*np.array([[imu_msg.linear_acceleration.x], 
-                      [imu_msg.linear_acceleration.y], 
-                      [imu_msg.linear_acceleration.z]])
-        
-        # Get current time
-        curr_t = imu_msg.header.stamp.sec + (imu_msg.header.stamp.nanosec * 1e-9)
-        
-        # Skip first iteration to establish time reference
+        a = 9.81 * np.array([[imu_msg.linear_acceleration.x],
+                              [imu_msg.linear_acceleration.y],
+                              [imu_msg.linear_acceleration.z]])
+        curr_t = imu_msg.header.stamp.sec + imu_msg.header.stamp.nanosec * 1e-9
         if self.prev_t is None:
             self.prev_t = curr_t
             return
-            
         dt = curr_t - self.prev_t
         self.prev_t = curr_t
-        
         if dt <= 0:
             return
-        
-        # PROPAGATION STEP (from the formulation in section 7.2.1)
-        omega_dt = omega * dt
-        R_delta = self.exp_so3(omega_dt)
-        R_new = self.R @ R_delta
-        
-        v_new = (self.R @ a + self.g) * dt
-        
-        p_new = self.p + self.v * dt + 0.5 * (self.R @ a + self.g) * dt**2
-        
-        # Update state
-        self.R = R_new
-        self.v = v_new
-        self.p = p_new
-        
-        self.X = self.compose_state_matrix(self.R, self.v, self.p)
-        
+        R_delta = self.exp_so3(omega * dt)
+        self.R = self.R @ R_delta
+        self.v = (self.R @ a + self.g) * dt
+        self.p = self.p + self.v * dt + 0.5 * (self.R @ a + self.g) * dt**2
         Adg = self.adjoint_SE3(R_delta)
-        
         self.P = Adg @ self.P @ Adg.T + self.Q
 
-    def pose_callback(self, pose_msg: PoseStamped):
-        """
-        Update step using position measurements
-        """
-        # Extract position measurement
-        y = np.array([[pose_msg.pose.position.x], 
-                                         [pose_msg.pose.position.y], 
-                                         [pose_msg.pose.position.z]])
-        
-        # b_k = self.R.T @ (y)- self.p #
-        b_k = y- self.p #
-
-        
-        H = np.zeros((3, 9))
-        H[:, 6:9] = np.eye(3)
+    def rf_sensor_timer_callback(self):
+        # mimic pose_callback logic, but triggered at 10 Hz, no incoming msg
+        now = self.get_clock().now().to_msg()
+        try:
+            tf = self.tf_buffer.lookup_transform(
+                'cf_2',                   # target frame
+                self.pose_frame,          # source frame
+                now,
+                timeout=rclpy.duration.Duration(seconds=0.1)
+            )
+            trans = tf.transform.translation
+            t_arr = np.array([[trans.x], [trans.y], [trans.z]])
+            q = tf.transform.rotation
+            R_mat = R.from_quat([q.x, q.y, q.z, q.w]).as_matrix()
+        except (LookupException, ConnectivityException, ExtrapolationException) as e:
+            self.get_logger().warn(f"TF {self.pose_frame}->cf_2 lookup failed: {e}")
+            return
+        # measurement in cf_2
+        y = R_mat @ np.zeros((3,1)) + t_arr  # origin of pose_frame in cf_2
+        # IEKF update step
+        b_k = self.R.T @ y - self.p
+        H = np.zeros((3,9)); H[:,6:9] = np.eye(3)
         S = H @ self.P @ H.T + self.N
         K = self.P @ H.T @ inv(S)
         xi = K @ b_k
-        
-        xi_theta = xi[0:3].reshape(3, 1)  # Rotation error
-        xi_v = xi[3:6].reshape(3, 1)      # Velocity error
-        xi_p = xi[6:9].reshape(3, 1)      # Position error
-        
-
-        self.R =  self.exp_so3(xi_theta)@ self.R
-        
+        xi_theta = xi[0:3].reshape(3,1)
+        xi_v     = xi[3:6].reshape(3,1)
+        xi_p     = xi[6:9].reshape(3,1)
+        self.R = self.exp_so3(xi_theta) @ self.R
         self.v = self.v + xi_v
-        
         self.p = self.p + xi_p
-        
         self.X = self.compose_state_matrix(self.R, self.v, self.p)
-        
         I_KH = np.eye(9) - K @ H
         self.P = I_KH @ self.P @ I_KH.T + K @ self.N @ K.T
 
     def timer_callback(self):
-        """
-        Publish the current state estimate
-        """
-        # Convert rotation matrix to quaternion
-        r = R.from_matrix(self.R)
-        quat = r.as_quat()  # (x,y,z,w)
-        
-        p = Point()
-        p.x = float(self.p[0])
-        p.y = float(self.p[1])
-        p.z = float(self.p[2])
-        
-        q = Quaternion()
-        q.x = float(quat[0])
-        q.y = float(quat[1])
-        q.z = float(quat[2])
-        q.w = float(quat[3])
-        
+        # publish current state to cf_2 frame
+        r_mat = R.from_matrix(self.R)
+        quat = r_mat.as_quat()
+        p = Point(x=float(self.p[0]), y=float(self.p[1]), z=float(self.p[2]))
+        q = Quaternion(x=float(quat[0]), y=float(quat[1]), z=float(quat[2]), w=float(quat[3]))
+        # broadcast tf to cf_2
+        t = TransformStamped()
+        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.frame_id = 'cf_2'
+        t.child_frame_id  = 'cf_2/iekf_pose'
+        t.transform.translation = Vector3(x = float(self.p[0]),y = float(self.p[1]),z = float(self.p[2]))
+        t.transform.rotation = q
+        self.tf_broadcaster.sendTransform(t)
+        # publish odometry
         twist = Twist()
-        twist.angular.x = 0.0
-        twist.angular.y = 0.0
-        twist.angular.z = 0.0
-        twist.linear.x = float(self.v[0])
-        twist.linear.y = float(self.v[1])
-        twist.linear.z = float(self.v[2])
+        twist.linear.x = float(self.v[0]); twist.linear.y = float(self.v[1]); twist.linear.z = float(self.v[2])
+        pose = Pose(orientation=q, position=p)
+        pos_cov = self.P[6:9,6:9]; rot_cov = self.P[0:3,0:3]
+        pose_cov = PoseWithCovariance(pose=pose, covariance=np.block([[pos_cov, np.zeros((3,3))],[np.zeros((3,3)), rot_cov]]).flatten().tolist())
+        twist_cov = TwistWithCovariance(twist=twist, covariance=np.block([[self.P[3:6,3:6], np.zeros((3,3))],[np.zeros((3,3)), np.zeros((3,3))]]).flatten().tolist())
+        odom_msg = Odometry()
+        odom_msg.header.stamp = self.get_clock().now().to_msg()
+        odom_msg.header.frame_id = 'odom'
+        odom_msg.child_frame_id = 'cf_2/iekf_pose'
+        odom_msg.pose = pose_cov
+        odom_msg.twist = twist_cov
+        self.pose_pub.publish(odom_msg)
         
-        pose = Pose()
-        pose.orientation = q
-        pose.position = p
-        
-        pos_cov = self.P[6:9, 6:9]
-        rot_cov = self.P[0:3, 0:3]
-        
-        pose_cov = np.zeros((6, 6))
-        pose_cov[0:3, 0:3] = pos_cov
-        pose_cov[3:6, 3:6] = rot_cov
-        
-        twist_cov = np.zeros((6, 6))
-        twist_cov[0:3, 0:3] = self.P[3:6, 3:6]  # Velocity covariance
-        
-        pose_with_cov = PoseWithCovariance()
-        pose_with_cov.pose = pose
-        pose_with_cov.covariance = pose_cov.flatten().tolist()
-        
-        twist_with_cov = TwistWithCovariance()
-        twist_with_cov.twist = twist
-        twist_with_cov.covariance = twist_cov.flatten().tolist()
-        
-        odom_output = Odometry()
-        odom_output.pose = pose_with_cov
-        odom_output.twist = twist_with_cov
-        
-        odom_output.header.stamp = self.get_clock().now().to_msg()
-        odom_output.header.frame_id = "odom"
-        odom_output.child_frame_id = "base_link"
-        
-        self.pose_pub.publish(odom_output)
-
     def odom_callback(self, odom_msg: Odometry):
-        """
-        Callback for ground truth odometry (for evaluation)
-        """
-        # Not used in this implementation
         pass
-    
+
     def compose_state_matrix(self, R, v, p):
-        """
-        Compose the state matrix X in SE_2(3) from rotation, velocity and position
-        X = [R v p; 0 1 0; 0 0 1]
-        """
         X = np.eye(5)
-        X[0:3, 0:3] = R
-        X[0:3, 3:4] = v
-        X[0:3, 4:5] = p
+        X[0:3,0:3] = R; X[0:3,3:4] = v; X[0:3,4:5] = p
         return X
-    
     def exp_so3(self, phi):
-        """
-        Exponential map from so(3) to SO(3)
-        Input: 3x1 vector phi (rotation vector)
-        Output: 3x3 rotation matrix
-        """
-        norm_phi = np.linalg.norm(phi)
-        
-        if norm_phi < 1e-6:
-            # Small angle approximation
-            return np.eye(3) + self.skew(phi)
-        
-        axis = phi / norm_phi
-        angle = norm_phi
-        
-        K = self.skew(axis)
-        R = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * (K @ K)
-        
-        return R
-    
+        norm = np.linalg.norm(phi)
+        if norm < 1e-6: return np.eye(3) + self.skew(phi)
+        axis = phi/norm; K = self.skew(axis)
+        return np.eye(3)+np.sin(norm)*K+(1-np.cos(norm))*(K@K)
     def skew(self, v):
-        """
-        Skew-symmetric matrix from 3D vector
-        Input: 3x1 vector v
-        Output: 3x3 skew-symmetric matrix
-        """
-        v = v.flatten()
-        return np.array([
-            [0, -v[2], v[1]],
-            [v[2], 0, -v[0]],
-            [-v[1], v[0], 0]
-        ])
-    
+        v=v.flatten()
+        return np.array([[0,-v[2],v[1]],[v[2],0,-v[0]],[-v[1],v[0],0]])
     def adjoint_SE3(self, R):
-        """
-        Adjoint map for SE(3)
-        Input: 3x3 rotation matrix R
-        Output: 9x9 adjoint matrix (for the error-state)
-        """
-        # For the given IEKF formulation with [R, v, p] state:
-        # The adjoint maps the error state ξ = [ξ_θ, ξ_v, ξ_p]
-        adj = np.zeros((9, 9))
-        
-        adj[0:3, 0:3] = R
-        
-        adj[3:6, 3:6] = R
-        
-        adj[6:9, 6:9] = R
-        
+        adj=np.zeros((9,9));
+        adj[0:3,0:3]=R;adj[3:6,3:6]=R;adj[6:9,6:9]=R
         return adj
+
 
 def main():
     rclpy.init()
