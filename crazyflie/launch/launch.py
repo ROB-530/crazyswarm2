@@ -180,14 +180,14 @@ def generate_launch_description():
                 Path(get_package_share_directory("crazyflie"), "config", "iekf.yaml"),
             ]
         ),
-        # Node(
-        #     package='crazyflie',
-        #     executable='iekf_beta.py',
-        #     name='iekfs',
-        #     parameters=[
-        #         Path(get_package_share_directory("crazyflie"), "config", "iekf.yaml"),
-        #     ]
-        # ),
+        Node(
+            package='crazyflie',
+            executable='iekf_beta.py',
+            name='iekfs',
+            parameters=[
+                Path(get_package_share_directory("crazyflie"), "config", "iekf_beta.yaml"),
+            ]
+        ),
         Node(
             package='ros_gz_bridge',
             executable='parameter_bridge',

@@ -16,10 +16,10 @@ class IEKF(Node):
         self.declare_parameters(
             "",
             [
-                ("imu_topic", "/cf_1/imu"),
-                ("pose_topic", "/cf_1/pose"),
-                ("odom_topic", "/cf_1/odom"),
-                ("iekf_output_topic", "/cf_1/iekf_pose")
+                ("imu_topic", "/cf_2/imu"),
+                ("pose_topic", "/cf_2/pose"),
+                # ("odom_topic", "/cf_1/odom"),
+                ("iekf_output_topic", "/cf_2/iekf_pose")
             ]
         )
 
@@ -31,7 +31,7 @@ class IEKF(Node):
         # subscribers
         self.imu_sub = self.create_subscription(Imu, imu_topic, self.imu_callback, 1)
         self.pose_sub = self.create_subscription(PoseStamped, pose_topic, self.pose_callback, 1)
-        self.odom_sub = self.create_subscription(Odometry, odom_topic, self.odom_callback, 1)
+        # self.odom_sub = self.create_subscription(Odometry, odom_topic, self.odom_callback, 1)
 
         # publishers
         self.pose_pub = self.create_publisher(Odometry, output_topic, 1)
@@ -101,16 +101,18 @@ class IEKF(Node):
         
         self.P = Adg @ self.P @ Adg.T + self.Q
 
-    def pose_callback(self, odom_msg: Odometry):
+    def pose_callback(self, pose_msg: PoseStamped):
         """
         Update step using position measurements
         """
         # Extract position measurement
-        y = np.array([[odom_msg.pose.pose.position.x], 
-                      [odom_msg.pose.pose.position.y], 
-                      [odom_msg.pose.pose.position.z]])
+        y = np.array([[pose_msg.pose.position.x], 
+                                         [pose_msg.pose.position.y], 
+                                         [pose_msg.pose.position.z]])
         
-        b_k = self.R.T @ (y)- self.p #
+        # b_k = self.R.T @ (y)- self.p #
+        b_k = y- self.p #
+
         
         H = np.zeros((3, 9))
         H[:, 6:9] = np.eye(3)
