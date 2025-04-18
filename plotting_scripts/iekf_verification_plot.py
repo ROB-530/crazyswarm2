@@ -3,6 +3,7 @@ import argparse
 import os
 
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import rclpy
 from rclpy.serialization import deserialize_message
@@ -10,9 +11,10 @@ from rosidl_runtime_py.utilities import get_message
 import rosbag2_py
 from nav_msgs.msg import Odometry
 
+
 def read_odometry(bag_path, topics):
     """
-    Read Odometry messages from a ROS 2 Humble bag.
+    Read Odometry messages from a ROS 2 Humble bag.
 
     Returns a dict mapping topic -> dict with keys:
       'times': list of float seconds,
@@ -20,7 +22,7 @@ def read_odometry(bag_path, topics):
       'speeds':    list of float linear speed magnitude.
     """
     storage_opts = rosbag2_py.StorageOptions(uri=bag_path, storage_id='sqlite3')
-    conv_opts    = rosbag2_py.ConverterOptions(
+    conv_opts = rosbag2_py.ConverterOptions(
         input_serialization_format='cdr',
         output_serialization_format='cdr'
     )
@@ -50,7 +52,8 @@ def read_odometry(bag_path, topics):
         vx = odom.twist.twist.linear.x
         vy = odom.twist.twist.linear.y
         vz = odom.twist.twist.linear.z
-        speed = np.linalg.norm((vx, vy, vz))
+        # use vertical speed; switch to magnitude if desired
+        speed = vz
 
         entry = data[topic_name]
         entry['times'].append(ts)
@@ -62,8 +65,10 @@ def read_odometry(bag_path, topics):
 
 def plot_trajectories(data, topics, output_prefix):
     plt.rcParams.update({'figure.autolayout': True})
-    # one figure for XY, one for speed
-    fig1, ax1 = plt.subplots(figsize=(8,8))
+    # 3D trajectory plot
+    fig1 = plt.figure(figsize=(8,8))
+    ax1 = fig1.add_subplot(111, projection='3d')
+    # speed vs time plot
     fig2, ax2 = plt.subplots(figsize=(8,4))
 
     any_plotted = False
@@ -73,32 +78,31 @@ def plot_trajectories(data, topics, output_prefix):
             print(f"[WARN] no messages on {t}, skipping.")
             continue
 
-        # stack into an (N,3) float array
         pos = np.stack(data[t]['positions'], axis=0)
         spd = np.array(data[t]['speeds'])
 
         order = np.argsort(times)
         times = times[order]
-        pos   = pos[order]
-        spd   = spd[order]
+        pos = pos[order]
+        spd = spd[order]
 
-        # XY
-        ax1.plot(pos[:,0], pos[:,1], label=t)
-        # speed vs time
+        # plot 3D trajectory
+        ax1.plot(pos[:, 0], pos[:, 1], pos[:, 2], label=t)
+        # plot speed vs time
         ax2.plot(times - times[0], spd, label=t)
         any_plotted = True
 
     if not any_plotted:
         raise RuntimeError("No data to plot for any topic!")
 
-    # finalize XY plot
+    # finalize 3D plot
     ax1.set_xlabel('X [m]')
     ax1.set_ylabel('Y [m]')
-    ax1.set_title('XY Trajectories')
-    ax1.axis('equal')
+    ax1.set_zlabel('Z [m]')
+    ax1.set_title('3D Trajectories')
     ax1.legend()
     ax1.grid(True)
-    fig1.savefig(f"{output_prefix}_traj.png", dpi=200)
+    fig1.savefig(f"{output_prefix}_traj3d.png", dpi=200)
 
     # finalize speed plot
     ax2.set_xlabel('Time [s] since start')
@@ -113,9 +117,9 @@ def plot_trajectories(data, topics, output_prefix):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description='Compare two nav_msgs/Odometry topics in a ROS 2 Humble bag')
-    parser.add_argument('--bag',    '-b', required=True,
-                        help='Path to the ROS 2 bag directory')
+        description='Compare two nav_msgs/Odometry topics in a ROS 2 Humble bag')
+    parser.add_argument('--bag', '-b', required=True,
+                        help='Path to the ROS 2 bag directory')
     parser.add_argument('--topics', '-t', nargs=2, required=True,
                         metavar=('TOPIC1','TOPIC2'),
                         help='Two Odometry topics to compare')
