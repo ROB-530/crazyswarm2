@@ -18,6 +18,10 @@ find_package(geometry_msgs REQUIRED)
 find_package(motion_capture_tracking_interfaces REQUIRED)
 find_package(Eigen3 REQUIRED)
 
+# Find the Gazebo msgs library
+find_package(gz-msgs11 REQUIRED)
+find_package(gz-transport12 REQUIRED)
+
 # add dependencies
 add_subdirectory(deps/crazyflie_tools)
 # add_subdirectory(externalDependencies/libmotioncapture)
@@ -56,6 +60,10 @@ ament_target_dependencies(crazyflie_server
   crazyflie_interfaces
   motion_capture_tracking_interfaces
 )
+
+add_executable(gz_bridge src/gz_bridge/gz_bridge.cpp)
+target_link_libraries(gz_bridge ${GZ-MSGS_LIBRARIES} gz-transport12::core)
+ament_target_dependencies(gz_bridge rclcpp sensor_msgs geometry_msgs)
 
 # # scan
 # add_executable(scan
@@ -100,6 +108,7 @@ install(TARGETS
   #
   teleop
   crazyflie_server
+  gz_bridge
   DESTINATION lib/${PROJECT_NAME})
 
 # Install Python executables
