@@ -111,6 +111,7 @@ install(PROGRAMS
   scripts/simple_mapper_multiranger.py
   scripts/aideck_streamer.py
   scripts/iekf.py
+  scripts/iekf_beta.py
   scripts/imu_data_pub.py
   scripts/gui.py
   scripts/flash.py
