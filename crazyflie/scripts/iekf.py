@@ -86,7 +86,7 @@ class IEKF(Node):
         R_delta = self.exp_so3(omega_dt)
         R_new = self.R @ R_delta
         
-        v_new = (self.v + (self.R @ a + self.g) * dt)
+        v_new = (self.R @ a + self.g) * dt
         
         p_new = self.p + self.v * dt + 0.5 * (self.R @ a + self.g) * dt**2
         
