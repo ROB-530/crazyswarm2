@@ -47,7 +47,7 @@ class IEKF(Node):
         # state initialization
         self.R = np.eye(3)
         self.v = np.zeros((3,1))
-        self.p = np.zeros((3,1))
+        self.p = np.array([[0.0],[-0.5],[0.0]])
         self.X = self.compose_state_matrix(self.R, self.v, self.p)
         self.P = np.eye(9) * 1.0
         self.Q = np.eye(9) * 1.0

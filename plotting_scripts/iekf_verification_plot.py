@@ -53,7 +53,7 @@ def read_odometry(bag_path, topics):
         vy = odom.twist.twist.linear.y
         vz = odom.twist.twist.linear.z
         # use vertical speed; switch to magnitude if desired
-        speed = vz
+        speed = np.linalg.norm([vx, vy, vz])
 
         entry = data[topic_name]
         entry['times'].append(ts)
