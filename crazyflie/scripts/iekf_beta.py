@@ -11,6 +11,8 @@ from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Vector3
 from tf2_ros import TransformBroadcaster, Buffer, TransformListener, LookupException, ConnectivityException, ExtrapolationException
 from geometry_msgs.msg import TransformStamped
+from rclpy.time import Time
+from rclpy.duration import Duration
 
 class IEKF(Node):
     def __init__(self):
@@ -79,37 +81,46 @@ class IEKF(Node):
         self.P = Adg @ self.P @ Adg.T + self.Q
 
     def rf_sensor_timer_callback(self):
-        # mimic pose_callback logic, but triggered at 10 Hz, no incoming msg
-        now = self.get_clock().now().to_msg()
+        # 10 Hz RF sensor update: grab latest transform cf_1/iekf_pose → cf_2
         try:
             tf = self.tf_buffer.lookup_transform(
-                'cf_2',                   # target frame
-                self.pose_frame,          # source frame
-                now,
-                timeout=rclpy.duration.Duration(seconds=0.1)
+                'cf_2/iekf_pose',                  # target frame
+                self.pose_frame,         # source frame
+                Time(),                  # zero time → latest available
+                timeout=Duration(seconds=0.1)
             )
-            trans = tf.transform.translation
-            t_arr = np.array([[trans.x], [trans.y], [trans.z]])
-            q = tf.transform.rotation
-            R_mat = R.from_quat([q.x, q.y, q.z, q.w]).as_matrix()
         except (LookupException, ConnectivityException, ExtrapolationException) as e:
             self.get_logger().warn(f"TF {self.pose_frame}->cf_2 lookup failed: {e}")
             return
-        # measurement in cf_2
-        y = R_mat @ np.zeros((3,1)) + t_arr  # origin of pose_frame in cf_2
+
+        # extract translation & rotation
+        trans = tf.transform.translation
+        t_arr = np.array([[trans.x], [trans.y], [trans.z]])
+        q = tf.transform.rotation
+        R_mat = R.from_quat([q.x, q.y, q.z, q.w]).as_matrix()
+
+        # measurement in cf_2: origin of pose_frame in cf_2
+        y = t_arr
+
         # IEKF update step
         b_k = self.R.T @ y - self.p
-        H = np.zeros((3,9)); H[:,6:9] = np.eye(3)
+        H = np.zeros((3,9))
+        H[:,6:9] = np.eye(3)
         S = H @ self.P @ H.T + self.N
         K = self.P @ H.T @ inv(S)
+
         xi = K @ b_k
         xi_theta = xi[0:3].reshape(3,1)
         xi_v     = xi[3:6].reshape(3,1)
         xi_p     = xi[6:9].reshape(3,1)
+
+        # apply update
         self.R = self.exp_so3(xi_theta) @ self.R
         self.v = self.v + xi_v
         self.p = self.p + xi_p
         self.X = self.compose_state_matrix(self.R, self.v, self.p)
+
+        # correct covariance
         I_KH = np.eye(9) - K @ H
         self.P = I_KH @ self.P @ I_KH.T + K @ self.N @ K.T
 
@@ -122,7 +133,7 @@ class IEKF(Node):
         # broadcast tf to cf_2
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
-        t.header.frame_id = 'cf_2'
+        t.header.frame_id = '/map'
         t.child_frame_id  = 'cf_2/iekf_pose'
         t.transform.translation = Vector3(x = float(self.p[0]),y = float(self.p[1]),z = float(self.p[2]))
         t.transform.rotation = q
@@ -136,7 +147,7 @@ class IEKF(Node):
         twist_cov = TwistWithCovariance(twist=twist, covariance=np.block([[self.P[3:6,3:6], np.zeros((3,3))],[np.zeros((3,3)), np.zeros((3,3))]]).flatten().tolist())
         odom_msg = Odometry()
         odom_msg.header.stamp = self.get_clock().now().to_msg()
-        odom_msg.header.frame_id = 'odom'
+        odom_msg.header.frame_id = '/odom'
         odom_msg.child_frame_id = 'cf_2/iekf_pose'
         odom_msg.pose = pose_cov
         odom_msg.twist = twist_cov

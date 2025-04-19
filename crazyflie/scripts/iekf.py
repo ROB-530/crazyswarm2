@@ -155,7 +155,7 @@ class IEKF(Node):
 
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
-        t.header.frame_id = '/cf_1'        # parent stays the same
+        t.header.frame_id = '/map'        # parent stays the same
         t.child_frame_id  = '/cf_1/iekf_pose'   # new frame name
 
         t.transform.translation.x = p.x
@@ -202,8 +202,8 @@ class IEKF(Node):
         odom_output.twist = twist_with_cov
         
         odom_output.header.stamp = self.get_clock().now().to_msg()
-        odom_output.header.frame_id = "odom"
-        odom_output.child_frame_id = "iekf_pose"
+        odom_output.header.frame_id = "/odom"
+        odom_output.child_frame_id = "/iekf_pose"
         
         self.pose_pub.publish(odom_output)
 
