@@ -12,30 +12,50 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <nav_msgs/msg/odometry.hpp>
  
 static std::atomic<bool> g_terminatePub(false);
 
 class Subscriber : public rclcpp::Node {
     public:
         Subscriber() : Node("gazebo_bridge") {
-            mSub = create_subscription<std_msgs::msg::String>("/cf_0/iekf_pose", 10, [this](std_msgs::msg::String::ConstSharedPtr const& msg) {
-                strCallback(msg);
+            mSub = create_subscription<nav_msgs::msg::Odometry>("/cf_0/iekf_pose", 10, [this](nav_msgs::msg::Odometry::ConstSharedPtr const& msg) {
+                odomCallback(msg);
             });
-            gzPub = gzNode.Advertise<gz::msgs::StringMsg>(topic);
+            gzPub = gzNode.Advertise<gz::msgs::Odometry>(topic);
         }
 
     private:
-        void strCallback(std_msgs::msg::String::ConstSharedPtr msg) {
-            RCLCPP_INFO(this->get_logger(), "Listen!: '%s'", msg->data.c_str());
-            gzMsg.set_data(msg->data.c_str());
+        void odomCallback(nav_msgs::msg::Odometry::ConstSharedPtr msg) {
+            auto *q = gzMsg.mutable_pose()->mutable_orientation();
+            q->set_x(msg->pose.pose.orientation.x);
+            q->set_y(msg->pose.pose.orientation.y);
+            q->set_z(msg->pose.pose.orientation.z);
+            q->set_w(msg->pose.pose.orientation.w);
+
+            auto *p = gzMsg.mutable_pose()->mutable_position();
+            p->set_x(msg->pose.pose.position.x);
+            p->set_y(msg->pose.pose.position.y);
+            p->set_z(msg->pose.pose.position.z);
+
+            // ignition::msgs::Vector3d twist_p;
+            // twist_p.set_x(msg->pose.twist.twist.linear.x);
+            // twist_p.set_y(msg->pose.twist.twist.linear.y);
+            // twist_p.set_z(msg->pose.twist.twist.linear.z);
+
+            // ignition::msgs::Header h;
+            // ignition::msgs::pose p;
+            // ignition::msgs:: twist t;
+            // RCLCPP_INFO(this->get_logger(), "Listen!");
             gzPub.Publish(gzMsg);
+            // RCLCPP_INFO(this->get_logger(), "Done publishing!");
         }
 
         gz::transport::Node gzNode;
         std::string topic = "/cf_0/iekf_pose";
-        ignition::msgs::StringMsg gzMsg;
+        ignition::msgs::Odometry gzMsg;
 
-        rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mSub;
+        rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr mSub;
         gz::transport::Node::Publisher gzPub;
 };
 

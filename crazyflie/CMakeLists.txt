@@ -15,6 +15,7 @@ find_package(std_srvs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(crazyflie_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(motion_capture_tracking_interfaces REQUIRED)
 find_package(Eigen3 REQUIRED)
 
@@ -63,7 +64,7 @@ ament_target_dependencies(crazyflie_server
 
 add_executable(gz_bridge src/gz_bridge/gz_bridge.cpp)
 target_link_libraries(gz_bridge ${GZ-MSGS_LIBRARIES} gz-transport12::core)
-ament_target_dependencies(gz_bridge rclcpp sensor_msgs geometry_msgs)
+ament_target_dependencies(gz_bridge rclcpp sensor_msgs geometry_msgs nav_msgs)
 
 # # scan
 # add_executable(scan
