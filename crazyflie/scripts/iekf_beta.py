@@ -169,7 +169,7 @@ class IEKF(Node):
         v=v.flatten()
         return np.array([[0,-v[2],v[1]],[v[2],0,-v[0]],[-v[1],v[0],0]])
     def adjoint_SE3(self, R):
-        adj=np.zeros((9,9));
+        adj=np.zeros((9,9))
         adj[0:3,0:3]=R;adj[3:6,3:6]=R;adj[6:9,6:9]=R
         return adj
 
