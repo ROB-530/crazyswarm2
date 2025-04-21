@@ -29,10 +29,10 @@ class IEKF(Node):
             ],
         )
 
-        imu_topic    = self.get_parameter("imu_topic").value
-        self.pose_frame = self.get_parameter("pose_frame").value
-        odom_topic    = self.get_parameter("odom_topic").value
-        output_topic  = self.get_parameter("iekf_output_topic").value
+        imu_topic = self.get_parameter("imu_topic").value
+        pose_topic = self.get_parameter("pose_topic").value
+        odom_topic = self.get_parameter("odom_topic").value
+        output_topic = self.get_parameter("iekf_output_topic").value
 
         # subscriptions
         self.imu_sub  = self.create_subscription(Imu, imu_topic, self.imu_callback, 1)
@@ -91,12 +91,12 @@ class IEKF(Node):
         try:
             tf = self.tf_buffer.lookup_transform(
                 'cf_2/iekf_pose',                  # target frame
-                self.pose_frame,         # source frame
+                'map',         # source frame
                 Time(),                  # zero time → latest available
                 timeout=Duration(seconds=0.1)
             )
         except (LookupException, ConnectivityException, ExtrapolationException) as e:
-            self.get_logger().warn(f"TF {self.pose_frame}->cf_2 lookup failed: {e}")
+            self.get_logger().warn(f"TF map->cf_2 lookup failed: {e}")
             return
 
         # extract translation & rotation
@@ -153,7 +153,7 @@ class IEKF(Node):
         twist_cov = TwistWithCovariance(twist=twist, covariance=np.block([[self.P[3:6,3:6], np.zeros((3,3))],[np.zeros((3,3)), np.zeros((3,3))]]).flatten().tolist())
         odom_msg = Odometry()
         odom_msg.header.stamp = self.get_clock().now().to_msg()
-        odom_msg.header.frame_id = '/odom'
+        odom_msg.header.frame_id = '/map'
         odom_msg.child_frame_id = 'cf_2/iekf_pose'
         odom_msg.pose = pose_cov
         odom_msg.twist = twist_cov

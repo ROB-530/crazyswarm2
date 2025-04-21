@@ -13,6 +13,7 @@ from nav_msgs.msg import Odometry
 from tf2_ros import TransformBroadcaster
 from geometry_msgs.msg import TransformStamped
 
+import manifpy as manif
 
 class IEKF(Node):
     def __init__(self):
@@ -21,10 +22,10 @@ class IEKF(Node):
         self.declare_parameters(
             "",
             [
-                ("imu_topic", Parameter.Type.STRING),
-                ("pose_topic", Parameter.Type.STRING),
-                ("odom_topic", Parameter.Type.STRING),
-                ("iekf_output_topic", Parameter.Type.STRING),
+                ("imu_topic", "/cf_0/imu"),
+                ("pose_topic", "/cf_0/pose"),
+                ("odom_topic", "/cf_0/odom"),
+                ("iekf_output_topic", "/cf_0/iekf_pose"),
             ],
         )
 
@@ -50,11 +51,14 @@ class IEKF(Node):
         self.p = np.zeros((3, 1))                         # Position
         self.X = self.compose_state_matrix(self.R, self.v, self.p)  # Combined state matrix
 
+        self.g = np.array([[0], [0], [-9.81]])
+
+        self.A = np.zeros((9,9))
+        self.A[0:3, 3:6] = self.skew(self.g)              # State transition matrix thingy
         self.P = np.eye(9) * 1.0                          # Error state covariance (9x9)
         self.Q = np.eye(9) * 1.0                          # Process noise covariance (9x9)
         self.N = np.eye(3) * 1.0                          # Measurement noise covariance (3x3)
 
-        self.g = np.array([[0], [0], [-9.81]])
 
         
 
@@ -69,10 +73,11 @@ class IEKF(Node):
                           [imu_msg.angular_velocity.y], 
                           [imu_msg.angular_velocity.z]])
         
+        # imu unit is in g's
         a = 9.81*np.array([[imu_msg.linear_acceleration.x], 
                       [imu_msg.linear_acceleration.y], 
                       [imu_msg.linear_acceleration.z]])
-        
+
         # Get current time
         curr_t = imu_msg.header.stamp.sec + (imu_msg.header.stamp.nanosec * 1e-9)
         
@@ -88,35 +93,32 @@ class IEKF(Node):
             return
         
         # PROPAGATION STEP (from the formulation in section 7.2.1)
+        a_lin = self.R @ a + self.g
         omega_dt = omega * dt
-        R_delta = self.exp_so3(omega_dt)
-        R_new = self.R @ R_delta
-        
-        v_new = (self.R @ a + self.g) * dt
-        
-        p_new = self.p + self.v * dt + 0.5 * (self.R @ a + self.g) * dt**2
-        
-        # Update state
-        self.R = R_new
-        self.v = v_new
-        self.p = p_new
-        
+
+        Adj = self.adjoint_SE3()
+
+        # propagate state
+        # TODO: ignoring gamma terms, should revisit
+        self.R = self.R @ self.exp_so3(omega * dt)
+        self.v += a_lin * dt
+        self.p += self.v * dt + 0.5 * a_lin * dt**2
+
+        # TODO: propogate rotation?
         self.X = self.compose_state_matrix(self.R, self.v, self.p)
         
-        Adg = self.adjoint_SE3(R_delta)
-        
-        self.P = Adg @ self.P @ Adg.T + self.Q
+        self.P = Adj @ self.Q @ Adj.T + expm(self.A * dt) @ self.P @ expm(self.A * dt).T
 
     def pose_callback(self, pose_msg: PoseStamped):
         """
         Update step using position measurements
         """
         # Extract position measurement
-        y = np.array([[pose_msg.pose.position.x], 
+        p = np.array([[pose_msg.pose.position.x], 
                       [pose_msg.pose.position.y], 
                       [pose_msg.pose.position.z]])
         
-        b_k = self.R.T @ (y)- self.p #
+        b_k = self.R.T @ (p)- self.p #
         
         H = np.zeros((3, 9))
         H[:, 6:9] = np.eye(3)
@@ -264,21 +266,25 @@ class IEKF(Node):
             [-v[1], v[0], 0]
         ])
     
-    def adjoint_SE3(self, R):
+    def adjoint_SE3(self):
         """
         Adjoint map for SE(3)
         Input: 3x3 rotation matrix R
         Output: 9x9 adjoint matrix (for the error-state)
         """
         # For the given IEKF formulation with [R, v, p] state:
-        # The adjoint maps the error state ξ = [ξ_θ, ξ_v, ξ_p]
+        # The adjoint maps the error state y = [y_θ, y_v, y_p]
         adj = np.zeros((9, 9))
+
+        adj[0:3, 0:3] = self.R
         
-        adj[0:3, 0:3] = R
+        adj[3:6, 3:6] = self.R
         
-        adj[3:6, 3:6] = R
-        
-        adj[6:9, 6:9] = R
+        adj[6:9, 6:9] = self.R
+
+        adj[3:6, 0:3] = self.skew(self.v) @ self.R
+
+        adj[6:9, 0:3] = self.skew(self.p) @ self.R
         
         return adj
 
