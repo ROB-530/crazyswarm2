@@ -1,6 +1,6 @@
 # named list of all robots
 robots:
-  cf_1:
+  cf_0:
     enabled: true
     uri: udp://0.0.0.0:19850
     initial_position: [0.0, 0.0, 0.0]
@@ -14,7 +14,7 @@ robots:
         topic_name3: 
           frequency: 1
           vars: ["acc.x", "acc.y", "acc.z"]
-  cf_2:
+  cf_1:
     enabled: true
     uri: udp://0.0.0.0:19851
     initial_position: [0.0, -0.5, 0.0]

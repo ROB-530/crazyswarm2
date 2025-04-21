@@ -174,7 +174,7 @@ def generate_launch_description():
         Node(
             package='crazyflie',
             executable='iekf.py',
-            name='iekfs',
+            name='iekf_alpha',
             parameters=[
                 Path(get_package_share_directory("crazyflie"), "config", "iekf.yaml"),
             ]
@@ -182,18 +182,15 @@ def generate_launch_description():
         Node(
             package='crazyflie',
             executable='iekf_beta.py',
-            name='iekfs_beta',
+            name='iekf_beta',
             parameters=[
                 Path(get_package_share_directory("crazyflie"), "config", "iekf_beta.yaml"),
             ]
         ),
         Node(
-            package='ros_gz_bridge',
-            executable='parameter_bridge',
+            package='crazyflie',
+            executable='gz_bridge',
             name='iekf_bridge',
-            arguments=[
-                "/cf_1/iekf_pose@nav_msgs/msg/Odometry@gz.msgs.Odometry",
-            ]
         )
         # Node(
         #     package='crazyflie',

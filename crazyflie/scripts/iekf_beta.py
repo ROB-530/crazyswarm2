@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
+from rclpy import Parameter
 import numpy as np
 from scipy.linalg import expm
 from numpy.linalg import inv
@@ -18,10 +19,15 @@ class IEKF(Node):
     def __init__(self):
         super().__init__("iekf")
         # parameters
-        self.declare_parameter('imu_topic',        '/cf_2/imu')
-        self.declare_parameter('pose_frame',       'cf_1/iekf_pose')  # TF frame for RF sensor input
-        self.declare_parameter('odom_topic',       '/cf_2/odom')
-        self.declare_parameter('iekf_output_topic','/cf_2/iekf_pose')
+        self.declare_parameters(
+            "",
+            [
+                ("imu_topic", Parameter.Type.STRING),
+                ("pose_topic", Parameter.Type.STRING),
+                ("odom_topic", Parameter.Type.STRING),
+                ("iekf_output_topic", Parameter.Type.STRING),
+            ],
+        )
 
         imu_topic    = self.get_parameter("imu_topic").value
         self.pose_frame = self.get_parameter("pose_frame").value

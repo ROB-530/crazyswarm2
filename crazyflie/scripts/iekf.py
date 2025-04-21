@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
+from rclpy import Parameter
 import numpy as np
 from scipy.linalg import expm
 from numpy.linalg import inv
@@ -17,10 +18,15 @@ class IEKF(Node):
     def __init__(self):
         super().__init__("iekf")
 
-        self.declare_parameter('imu_topic',        '/cf_1/imu')
-        self.declare_parameter('pose_topic',       '/cf_1/pose')
-        self.declare_parameter('odom_topic',       '/cf_1/odom')
-        self.declare_parameter('iekf_output_topic','/cf_1/iekf_pose')
+        self.declare_parameters(
+            "",
+            [
+                ("imu_topic", Parameter.Type.STRING),
+                ("pose_topic", Parameter.Type.STRING),
+                ("odom_topic", Parameter.Type.STRING),
+                ("iekf_output_topic", Parameter.Type.STRING),
+            ],
+        )
 
         imu_topic = self.get_parameter("imu_topic").value
         pose_topic = self.get_parameter("pose_topic").value
@@ -37,7 +43,7 @@ class IEKF(Node):
         self.tf_broadcaster = TransformBroadcaster(self)
 
         # timers
-        self.ekf_timer = self.create_timer(0.002, self.timer_callback)
+        self.ekf_timer = self.create_timer(0.1, self.timer_callback)
 
         self.R = np.eye(3)                                # Rotation matrix (orientation)
         self.v = np.zeros((3, 1))                         # Velocity
@@ -156,7 +162,7 @@ class IEKF(Node):
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
         t.header.frame_id = '/map'        # parent stays the same
-        t.child_frame_id  = '/cf_1/iekf_pose'   # new frame name
+        t.child_frame_id  = '/cf_0/iekf_pose'   # new frame name
 
         t.transform.translation.x = p.x
         t.transform.translation.y = p.y
@@ -202,7 +208,7 @@ class IEKF(Node):
         odom_output.twist = twist_with_cov
         
         odom_output.header.stamp = self.get_clock().now().to_msg()
-        odom_output.header.frame_id = "/odom"
+        odom_output.header.frame_id = "/map"
         odom_output.child_frame_id = "/iekf_pose"
         
         self.pose_pub.publish(odom_output)
